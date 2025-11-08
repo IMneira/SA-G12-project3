@@ -18,7 +18,7 @@ services:
       - "8000:8000"
     environment:
       DATABASE_URL: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db/${POSTGRES_DB}"
-      FINTOC_API_KEY: ${FINTOC_API_KEY} 
+      SECRET_KEY: ${SECRET_KEY}
     depends_on:
       - db 
 
