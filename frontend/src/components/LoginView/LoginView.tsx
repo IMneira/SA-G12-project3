@@ -47,7 +47,7 @@ export const LoginView: React.FC = () => {
           </Text>
 
           <TextInput
-            label="Username"
+            label="Email"
             value={credentials.username}
             onChangeText={handleInputChange("username")}
             mode="outlined"

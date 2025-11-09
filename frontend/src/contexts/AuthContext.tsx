@@ -6,6 +6,7 @@ import {
   RegisterCredentials,
 } from "../../types/auth";
 import { authService } from "../services/authService";
+import { setAuthToken } from "../services/api";
 
 export type AuthView = "login" | "register";
 
@@ -34,6 +35,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       const authResponse = await authService.login(credentials);
       setUser(authResponse.user);
       // Store token securely (AsyncStorage, SecureStore, etc.)
+      setAuthToken(authResponse.token);
     } catch (error) {
       throw error;
     } finally {
@@ -54,6 +56,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
+  const logout = (): void => {
+    setUser(null);
+    setAuthToken(null); // Clear the token
+  };
+
   const switchAuthView = (view: AuthView): void => {
     setCurrentView(view);
   };
@@ -63,6 +70,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     isLoading,
     login,
     register,
+    logout,
     currentView,
     switchAuthView,
     isAuthenticated: !!user,
