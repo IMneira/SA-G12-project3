@@ -6,19 +6,29 @@ import { LoginView } from "./src/components/LoginView/LoginView";
 import { RegisterView } from "./src/components/RegisterView/RegisterView";
 import { appTheme } from "./src/styles/theme";
 import { ReactElement } from "react";
+import { DashboardView } from "./src/components/dashboard/DashboardView"; 
 
 const AppContent: React.FC = (): ReactElement => {
   const { currentView, isAuthenticated } = useAuth();
 
+  if (isAuthenticated) {
+    return (
+      <>
+        <StatusBar style="auto" />
+        <DashboardView />
+      </>
+    );
+  }
+
   return (
     <>
       <StatusBar style="auto" />
-      {currentView === "login" && !isAuthenticated && <LoginView />}
-      {currentView === "register" && !isAuthenticated && <RegisterView />}
-      {/* Main app content would go here when authenticated */}
+      {currentView === "login" && <LoginView />}
+      {currentView === "register" && <RegisterView />}
     </>
   );
 };
+
 
 export default function App(): ReactElement {
   return (

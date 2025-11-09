@@ -1,88 +1,54 @@
-import React, { createContext, useState, useContext, ReactNode } from "react";
-import {
-  AuthContextType,
-  User,
-  LoginCredentials,
-  RegisterCredentials,
-} from "../../types/auth";
+
+import React, { createContext, useContext, useState } from "react";
 import { authService } from "../services/authService";
 import { setAuthToken } from "../services/api";
 
-export type AuthView = "login" | "register";
+type AuthCtx = {
+  token: string | null;
+  user: { id: number; email: string } | null;
+  isAuthenticated: boolean;
+  isLoading: boolean;
+  currentView: "login" | "register";
+  switchAuthView: (v: "login" | "register") => void;
+  login: (cred: { username: string; password: string }) => Promise<void>;
+  logout: () => void;
+};
 
-interface AuthContextTypeExtended
-  extends Omit<AuthContextType, "switchAuthView"> {
-  currentView: AuthView;
-  switchAuthView: (view: AuthView) => void;
-}
+const AuthContext = createContext<AuthCtx>({} as any);
 
-const AuthContext = createContext<AuthContextTypeExtended | undefined>(
-  undefined,
-);
+export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [token, setToken] = useState<string | null>(null);
+  const [user, setUser] = useState<{ id: number; email: string } | null>(null);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isLoading] = useState(false);
+  const [currentView, setCurrentView] = useState<"login" | "register">("login");
 
-interface AuthProviderProps {
-  children: ReactNode;
-}
+  const switchAuthView = (v: "login" | "register") => setCurrentView(v);
 
-export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [currentView, setCurrentView] = useState<AuthView>("login");
+  const login = async (cred: { username: string; password: string }) => {
+    const { token: tkn, user: me } = await authService.login(cred);
 
-  const login = async (credentials: LoginCredentials): Promise<void> => {
-    setIsLoading(true);
-    try {
-      const authResponse = await authService.login(credentials);
-      setUser(authResponse.user);
-      // Store token securely (AsyncStorage, SecureStore, etc.)
-      setAuthToken(authResponse.token);
-    } catch (error) {
-      throw error;
-    } finally {
-      setIsLoading(false);
-    }
+    setToken(tkn);
+    setAuthToken(tkn);
+    setUser(me);
+    setIsAuthenticated(true);
   };
 
-  const register = async (credentials: RegisterCredentials): Promise<void> => {
-    setIsLoading(true);
-    try {
-      const authResponse = await authService.register(credentials);
-      setUser(authResponse.user);
-      // Store token securely (AsyncStorage, SecureStore, etc.)
-    } catch (error) {
-      throw error;
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const logout = (): void => {
+  const logout = () => {
+    setToken(null);
     setUser(null);
-    setAuthToken(null); // Clear the token
+    setIsAuthenticated(false);
+    setAuthToken(undefined);
+    setCurrentView("login");
   };
 
-  const switchAuthView = (view: AuthView): void => {
-    setCurrentView(view);
-  };
-
-  const value: AuthContextTypeExtended = {
-    user,
-    isLoading,
-    login,
-    register,
-    logout,
-    currentView,
-    switchAuthView,
-    isAuthenticated: !!user,
-  };
-
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider
+      value={{ token, user, isAuthenticated, isLoading, currentView, switchAuthView, login, logout }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
 };
 
-export const useAuth = (): AuthContextTypeExtended => {
-  const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error("useAuth must be used within an AuthProvider");
-  }
-  return context;
-};
+export const useAuth = () => useContext(AuthContext);

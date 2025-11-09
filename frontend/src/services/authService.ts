@@ -4,94 +4,50 @@ import {
   AuthResponse,
   User,
 } from "../../types/auth";
-import { api } from "./api";
+import { api, setAuthToken } from "../services/api"; 
 
 interface BackendLoginResponse {
   access_token: string;
   token_type: string;
 }
-
 interface BackendRegisterResponse {
   id: number;
   email: string;
-  username: string;
-  // Add other user fields from your schema
 }
 
 class AuthService {
   async login(credentials: LoginCredentials): Promise<AuthResponse> {
-    try {
-      // Your backend uses OAuth2PasswordRequestForm which expects form data
-      const formData = new URLSearchParams();
-      formData.append("username", credentials.username); // This should be the email
-      formData.append("password", credentials.password);
 
-      const response = await api.post<BackendLoginResponse>(
-        "/login",
-        formData,
-        {
-          headers: {
-            "Content-Type": "application/x-www-form-urlencoded",
-          },
-        },
-      );
+    const loginUser =
+      (credentials as any).email ?? credentials.username ?? "";
+    const form = new URLSearchParams();
+    form.set("username", loginUser);
+    form.set("password", credentials.password);
 
-      // Store the token for future requests
-      const token = response.data.access_token;
+    const { data } = await api.post<BackendLoginResponse>("/login", form, {
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    });
 
-      // Get user info using the token
-      const userResponse = await api.get<User>("/users/me", {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
+    const token = data.access_token;
+    setAuthToken(token);
 
-      return {
-        user: userResponse.data,
-        token: token,
-        message: "Login successful",
-      };
-    } catch (error: any) {
-      console.error("Login error:", error);
-      if (error.response?.data?.detail) {
-        throw new Error(
-          Array.isArray(error.response.data.detail)
-            ? error.response.data.detail[0]?.msg || "Login failed"
-            : error.response.data.detail,
-        );
-      }
-      throw new Error("Login failed. Please try again.");
-    }
+    const me = await api.get<User>("/users/me");
+    return { user: me.data, token, message: "Login successful" };
   }
 
   async register(credentials: RegisterCredentials): Promise<AuthResponse> {
-    try {
-      // Register uses JSON
-      const response = await api.post<BackendRegisterResponse>("/register", {
-        email: credentials.email,
-        password: credentials.password,
-        username: credentials.username,
-        // Add other required fields from your UserCreate schema
-      });
-
-      // After registration, automatically log the user in
-      // Note: Your backend uses email as the username for login
-      return await this.login({
-        username: credentials.username, // Use email as username for login
-        password: credentials.password,
-      });
-    } catch (error: any) {
-      console.error("Registration error:", error);
-      if (error.response?.data?.detail) {
-        throw new Error(error.response.data.detail);
-      }
-      throw new Error("Registration failed. Please try again.");
-    }
+    await api.post<BackendRegisterResponse>("/register", {
+      email: credentials.email,
+      password: credentials.password,
+    });
+    return this.login({
+      username: credentials.email,
+      password: credentials.password,
+    });
   }
 
   async logout(): Promise<void> {
-    // Clear stored token
-    console.log("Logout called");
+    setAuthToken(undefined);
   }
 }
 
