@@ -86,7 +86,7 @@ export const RegisterView: React.FC = (): ReactElement => {
             disabled={isLoading}
             loading={isLoading}
           >
-            {!isLoading && "Login"}
+            {!isLoading && "Sign Up"}
           </Button>
 
           <Button
@@ -95,7 +95,7 @@ export const RegisterView: React.FC = (): ReactElement => {
             style={styles.switchButton}
             disabled={isLoading}
           >
-            Don't have an account? Sign up
+            Already have an account? Login
           </Button>
         </Card.Content>
       </Card>
