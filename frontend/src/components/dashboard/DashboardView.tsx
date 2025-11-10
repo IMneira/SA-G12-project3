@@ -1,32 +1,19 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { View, Dimensions, ScrollView } from "react-native";
-import {
-  Text,
-  Card,
-  Button,
-  List,
-  Divider,
-  Snackbar,
-  ActivityIndicator,
-  Chip,
-  Dialog,
-  Portal,
-  TextInput,
-  RadioButton,
-  HelperText,
-} from "react-native-paper";
+import { ScrollView, View } from "react-native";
+import { ActivityIndicator, Snackbar, Text } from "react-native-paper";
 import { dashboardStyles as styles } from "./DashboardView.styles";
 import { useAuth } from "../../contexts/AuthContext";
-import { PieChart } from "react-native-chart-kit";
 
-type DashboardSummary = {
-  total_income: number;
-  total_expense: number;
-  balance: number;
-};
+import { DashboardHeader } from "../../components/dashboard/DashboardHeader";
+import { KPISummary } from "../../components/dashboard/KPISummary";
+import { IncomeExpensePie } from "../../components/dashboard/IncomeExpensePie";
+import { CategoryExpensePie } from "../../components/dashboard/CategoryExpensePie";
+import { RecentTransactions } from "../../components/dashboard/RecentTransactions";
+import { AddTransactionDialog } from "../../components/dashboard/AddTransactionDialog";
+import { ManageCategoriesDialog } from "../../components/dashboard/ManageCategoriesDialog";
 
+type DashboardSummary = { total_income: number; total_expense: number; balance: number };
 type Category = { id: number; name: string; owner_id: number };
-
 type Transaction = {
   id: number;
   description: string;
@@ -39,33 +26,34 @@ type Transaction = {
 };
 
 const API = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
-const screenWidth = Dimensions.get("window").width;
 
 export const DashboardView: React.FC = () => {
-  const { token, logout } = useAuth();
+  const { token } = useAuth();
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [snackbarVisible, setSnackbarVisible] = useState(false);
+  const [snack, setSnack] = useState(false);
 
-  const [email, setEmail] = useState<string>("");
+  const [email, setEmail] = useState("");
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
-  const [txs, setTxs] = useState<Transaction[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
+  const [txRecent, setTxRecent] = useState<Transaction[]>([]);
+  const [txAll, setTxAll] = useState<Transaction[]>([]);
+  const [cats, setCats] = useState<Category[]>([]);
 
-  // Add-transaction dialog
+  // dialogs
   const [showAdd, setShowAdd] = useState(false);
-  const [newDesc, setNewDesc] = useState("");
-  const [newAmount, setNewAmount] = useState<string>("");
-  const [newType, setNewType] = useState<"income" | "expense">("expense");
-  const [newCatId, setNewCatId] = useState<number | null>(null);
+  const [showCats, setShowCats] = useState(false);
+
+  // add form
+  const [desc, setDesc] = useState("");
+  const [amount, setAmount] = useState("");
+  const [ttype, setTtype] = useState<"income" | "expense">("expense");
+  const [catId, setCatId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
-  // Inline create (only when there are no categories)
   const [newCatName, setNewCatName] = useState("");
   const [creatingCat, setCreatingCat] = useState(false);
 
-  // Manage categories dialog
-  const [showCats, setShowCats] = useState(false);
+  // manage categories
   const [catNameToAdd, setCatNameToAdd] = useState("");
   const [addingInManager, setAddingInManager] = useState(false);
 
@@ -74,18 +62,10 @@ export const DashboardView: React.FC = () => {
     [token]
   );
 
-  const handleError = (e: any) => {
-    const status = e?.response?.status || e?.status;
-    if (status === 401) {
-      logout();
-      return;
-    }
-    const msg =
-      e?.response?.data?.detail ||
-      e?.message ||
-      (typeof e === "string" ? e : "Unexpected error");
+  const fail = (e: any) => {
+    const msg = e?.message || "Unexpected error";
     setError(msg);
-    setSnackbarVisible(true);
+    setSnack(true);
   };
 
   const fetchJSON = async <T,>(path: string, init?: RequestInit): Promise<T> => {
@@ -97,52 +77,40 @@ export const DashboardView: React.FC = () => {
         ...authHeader,
       },
     });
-    if (!res.ok) {
-      if (res.status === 401) {
-        logout();
-        throw new Error("Unauthorized (401)");
-      }
-      const txt = await res.text();
-      throw new Error(txt || res.statusText);
-    }
+    if (!res.ok) throw new Error((await res.text()) || res.statusText);
     return res.json();
   };
 
   const refreshCategories = useCallback(async () => {
-    const cats = await fetchJSON<Category[]>("/categories/");
-    setCategories(cats);
-    if (!newCatId && cats.length > 0) setNewCatId(cats[0].id);
-  }, [newCatId, authHeader]);
+    const cs = await fetchJSON<Category[]>("/categories/");
+    setCats(cs);
+    if (!catId && cs.length) setCatId(cs[0].id);
+  }, [catId]);
 
   const loadAll = useCallback(async () => {
     if (!token) {
       setLoading(false);
-      setEmail("");
-      setSummary(null);
-      setTxs([]);
-      setCategories([]);
       return;
     }
     try {
       setLoading(true);
-      setError(null);
-
-      const [me, sum, transactions] = await Promise.all([
+      const [me, sum, recent, all] = await Promise.all([
         fetchJSON<{ id: number; email: string }>("/users/me"),
         fetchJSON<DashboardSummary>("/dashboard/summary_total"),
         fetchJSON<Transaction[]>("/transactions/?skip=0&limit=5"),
+        fetchJSON<Transaction[]>("/transactions/?skip=0&limit=500"),
       ]);
-
       setEmail(me.email);
       setSummary(sum);
-      setTxs(transactions);
+      setTxRecent(recent);
+      setTxAll(all);
       await refreshCategories();
     } catch (e) {
-      handleError(e);
+      fail(e);
     } finally {
       setLoading(false);
     }
-  }, [token, authHeader, refreshCategories]);
+  }, [token, refreshCategories]);
 
   useEffect(() => {
     loadAll();
@@ -153,72 +121,84 @@ export const DashboardView: React.FC = () => {
     [summary]
   );
 
-  // Show pie only when there is actual data
-  const hasData =
-    (summary?.total_income ?? 0) > 0 || (summary?.total_expense ?? 0) > 0;
+  const catSlices = useMemo(() => {
+    const idToName = new Map<number, string>();
+    cats.forEach((c) => idToName.set(c.id, c.name));
+    const sums = new Map<number, number>();
+    for (const t of txAll) {
+      if (t.type !== "expense") continue;
+      const amt = Math.abs(Number(t.amount) || 0);
+      if (amt <= 0) continue;
 
-  // Keep the chart tightly sized so it centers inside the card
-  const chartSize = Math.min(screenWidth * 0.7, 360);
+      if (!idToName.has(t.category_id)) {
+        idToName.set(
+          t.category_id,
+          t.category?.name ?? `cat#${t.category_id}`
+        );
+      }
+      sums.set(t.category_id, (sums.get(t.category_id) ?? 0) + amt);
+    }
 
-  const pieData = useMemo(() => {
-    const income = summary?.total_income ?? 0;
-    const expense = summary?.total_expense ?? 0;
-    return [
-      {
-        name: "Income",
-        amount: income,
-        color: "#22c55e",
-        legendFontColor: "#222",
-        legendFontSize: 13,
-      },
-      {
-        name: "Expense",
-        amount: expense,
-        color: "#ef4444",
-        legendFontColor: "#222",
-        legendFontSize: 13,
-      },
+    const entries = Array.from(sums.entries()).map(([id, total]) => ({
+      name: idToName.get(id) ?? `cat#${id}`,
+      total,
+    }));
+
+    const grand = entries.reduce((s, e) => s + e.total, 0);
+    if (grand <= 0) return [];
+
+    const palette = [
+      "#7c3aed",
+      "#06b6d4",
+      "#f59e0b",
+      "#10b981",
+      "#ef4444",
+      "#8b5cf6",
+      "#22c55e",
+      "#ec4899",
+      "#14b8a6",
+      "#6366f1",
     ];
-  }, [summary]);
 
-  // ----- Add Transaction -----
-  const amountIsInvalid =
-    newAmount.trim() === "" || isNaN(Number(newAmount)) || Number(newAmount) <= 0;
+    return entries
+      .sort((a, b) => b.total - a.total)
+      .map((e, i) => ({
+        name: e.name,
+        population: e.total,
+        color: palette[i % palette.length],
+        legendFontColor: "#111",
+        legendFontSize: 12,
+        pct: Math.round((e.total / grand) * 100),
+      }));
+  }, [txAll, cats]);
 
-  const resetForm = () => {
-    setNewDesc("");
-    setNewAmount("");
-    setNewType("expense");
-    setNewCatId(categories[0]?.id ?? null);
-    setNewCatName("");
-  };
-
-  const createTransaction = async () => {
-    if (!newCatId || amountIsInvalid || !newDesc.trim()) return;
+  const saveTx = async () => {
+    if (!catId || !desc.trim() || !amount.trim()) return;
     try {
       setSaving(true);
-      const body = {
-        description: newDesc.trim(),
-        amount: Number(newAmount),
-        type: newType,
-        category_id: newCatId,
-        date: new Date().toISOString(),
-      };
       await fetchJSON<Transaction>("/transactions/", {
         method: "POST",
-        body: JSON.stringify(body),
+        body: JSON.stringify({
+          description: desc.trim(),
+          amount: Number(amount),
+          type: ttype,
+          category_id: catId,
+          date: new Date().toISOString(),
+        }),
       });
       setShowAdd(false);
-      resetForm();
-      await loadAll(); // refresh KPI + recent list
+      setDesc("");
+      setAmount("");
+      setTtype("expense");
+      await loadAll();
     } catch (e) {
-      handleError(e);
+      fail(e);
     } finally {
       setSaving(false);
     }
   };
 
-  const createCategoryInline = async () => {
+  const createCatInline = async () => {
     if (!newCatName.trim()) return;
     try {
       setCreatingCat(true);
@@ -227,17 +207,16 @@ export const DashboardView: React.FC = () => {
         body: JSON.stringify({ name: newCatName.trim() }),
       });
       await refreshCategories();
-      setNewCatId(created.id);
+      setCatId(created.id);
       setNewCatName("");
     } catch (e) {
-      handleError(e);
+      fail(e);
     } finally {
       setCreatingCat(false);
     }
   };
 
-  // ----- Category Manager -----
-  const addCategoryFromManager = async () => {
+  const addCatFromManager = async () => {
     if (!catNameToAdd.trim()) return;
     try {
       setAddingInManager(true);
@@ -246,10 +225,10 @@ export const DashboardView: React.FC = () => {
         body: JSON.stringify({ name: catNameToAdd.trim() }),
       });
       await refreshCategories();
-      setNewCatId((old) => old ?? created.id);
+      setCatId((old) => old ?? created.id);
       setCatNameToAdd("");
     } catch (e) {
-      handleError(e);
+      fail(e);
     } finally {
       setAddingInManager(false);
     }
@@ -258,356 +237,104 @@ export const DashboardView: React.FC = () => {
   if (!token) {
     return (
       <View
-        style={[
-          styles.container,
-          { justifyContent: "center", alignItems: "center" },
-        ]}
+        style={[styles.container, { justifyContent: "center", alignItems: "center" }]}
       >
         <Text>Please sign in to see your dashboard.</Text>
       </View>
     );
   }
-
   if (loading) {
     return (
       <View
-        style={[
-          styles.container,
-          { justifyContent: "center", alignItems: "center" },
-        ]}
+        style={[styles.container, { justifyContent: "center", alignItems: "center" }]}
       >
         <ActivityIndicator />
-        <Text style={{ marginTop: 8 }}>Loading your dashboard…</Text>
+        <Text style={{ marginTop: 8 }}>Loading…</Text>
       </View>
     );
   }
 
   return (
     <ScrollView contentContainerStyle={{ padding: 16, alignItems: "center" }}>
-      {/* Header & KPIs */}
-      <Card style={[styles.headerCard, { maxWidth: 700, width: "100%" }]}>
-        <Card.Content>
-          <View
-            style={[
-              styles.headerRow,
-              { justifyContent: "space-between", alignItems: "center" },
-            ]}
-          >
-            <Text variant="headlineMedium" style={styles.title}>
-              Financial Dashboard
-            </Text>
-            <View style={{ flexDirection: "row", alignItems: "center" }}>
-              <Text variant="labelLarge">{email}</Text>
-              <Chip style={styles.chip} compact>
-                {summary ? "Active" : "No data"}
-              </Chip>
-            </View>
-          </View>
+      {/* Header with title + email + chip */}
+      <DashboardHeader email={email} styles={styles} />
 
-          <View
-            style={[
-              styles.kpisRow,
-              { justifyContent: "center", gap: 12, marginTop: 8 },
-            ]}
-          >
-            <Card style={[styles.kpiCard, { minWidth: 180 }]}>
-              <Card.Content style={{ alignItems: "center" }}>
-                <Text variant="labelLarge">Total Income</Text>
-                <Text variant="headlineSmall">
-                  $ {(summary?.total_income ?? 0).toFixed(2)}
-                </Text>
-              </Card.Content>
-            </Card>
+      {/* KPIs */}
+      <KPISummary
+        totalIncome={summary?.total_income ?? 0}
+        totalExpense={summary?.total_expense ?? 0}
+        balance={summary?.balance ?? 0}
+        balanceColor={balanceColor}
+        styles={styles}
+      />
 
-            <Card style={[styles.kpiCard, { minWidth: 180 }]}>
-              <Card.Content style={{ alignItems: "center" }}>
-                <Text variant="labelLarge">Total Expense</Text>
-                <Text variant="headlineSmall">
-                  $ {(summary?.total_expense ?? 0).toFixed(2)}
-                </Text>
-              </Card.Content>
-            </Card>
-
-            <Card style={[styles.kpiCard, { minWidth: 180 }]}>
-              <Card.Content style={{ alignItems: "center" }}>
-                <Text variant="labelLarge">Balance</Text>
-                <Text variant="headlineSmall" style={{ color: balanceColor }}>
-                  $ {(summary?.balance ?? 0).toFixed(2)}
-                </Text>
-              </Card.Content>
-            </Card>
-          </View>
-        </Card.Content>
-      </Card>
-
-      {/* Pie Chart — centered and only when there is data */}
-      {hasData && (
-        <Card
-          style={[
-            styles.listCard,
-            {
-              marginTop: 16,
-              maxWidth: 700,
-              width: "100%",
-              alignItems: "center",
-            },
-          ]}
-        >
-          <Card.Title title="Income vs Expense" />
-          <Card.Content
-            style={{
-              alignItems: "center",
-              width: "100%",
-            }}
-          >
-            <View
-              style={{
-                width: chartSize,
-                alignSelf: "center",
-                alignItems: "center",
-              }}
-            >
-              <PieChart
-                data={pieData.map((p) => ({
-                  name: p.name,
-                  population: p.amount,
-                  color: p.color,
-                  legendFontColor: p.legendFontColor,
-                  legendFontSize: p.legendFontSize,
-                }))}
-                width={chartSize}         // tight width → perfect centering
-                height={220}
-                accessor="population"
-                backgroundColor="transparent"
-                hasLegend
-                // No paddingLeft so the chart stays centered in its own box
-                center={[0, 0]}          // explicit center
-                chartConfig={{
-                  color: () => `rgba(0,0,0,1)`,
-                  labelColor: () => `rgba(0,0,0,1)`,
-                }}
-              />
-            </View>
-            <Text style={{ marginTop: 8 }}>
-              {`Income: $${(summary?.total_income ?? 0).toFixed(
-                2
-              )} • Expense: $${(summary?.total_expense ?? 0).toFixed(2)}`}
-            </Text>
-          </Card.Content>
-        </Card>
-      )}
-
-      {/* Recent Transactions + Actions */}
-      <Card
-        style={[styles.listCard, { marginTop: 16, maxWidth: 700, width: "100%" }]}
+      {/* Charts: side-by-side on wide screens, stacked on narrow */}
+      <View
+        style={{
+          width: "100%",
+          maxWidth: 980,
+          flexDirection: "row",
+          flexWrap: "wrap",
+          gap: 16,
+          justifyContent: "center",
+          marginTop: 8,
+        }}
       >
-        <Card.Title
-          title="Recent transactions"
-          right={() => (
-            <View style={{ flexDirection: "row", gap: 8 }}>
-              <Button onPress={loadAll}>Refresh</Button>
-              <Button mode="contained" onPress={() => setShowAdd(true)}>
-                Add
-              </Button>
-              <Button mode="contained-tonal" onPress={() => setShowCats(true)}>
-                Manage categories
-              </Button>
-            </View>
-          )}
-        />
-        <Card.Content>
-          {txs.length === 0 ? (
-            <Text style={[styles.empty, { textAlign: "center" }]}>
-              No transactions yet.
-            </Text>
-          ) : (
-            <View>
-              {txs.map((t, idx) => (
-                <View key={t.id}>
-                  <List.Item
-                    title={t.description}
-                    description={`${new Date(t.date).toLocaleString()} • ${
-                      t.category?.name ?? `cat#${t.category_id}`
-                    }`}
-                    right={() => (
-                      <Text
-                        style={{
-                          color: t.type === "income" ? "#22c55e" : "#ef4444",
-                          fontWeight: "700",
-                        }}
-                      >
-                        {t.type === "income" ? "+" : "-"}$ {t.amount.toFixed(2)}
-                      </Text>
-                    )}
-                  />
-                  {idx < txs.length - 1 && <Divider />}
-                </View>
-              ))}
-            </View>
-          )}
-        </Card.Content>
-      </Card>
+        <View style={{ flexBasis: 460, flexGrow: 1 }}>
+          <IncomeExpensePie
+            income={summary?.total_income ?? 0}
+            expense={summary?.total_expense ?? 0}
+            styles={styles}
+          />
+        </View>
+        <View style={{ flexBasis: 460, flexGrow: 1 }}>
+          <CategoryExpensePie slices={catSlices} styles={styles} />
+        </View>
+      </View>
 
-      {/* Add Transaction Dialog — compact */}
-      <Portal>
-        <Dialog
-          visible={showAdd}
-          onDismiss={() => setShowAdd(false)}
-          style={{ maxWidth: 520, width: "95%", alignSelf: "center" }}
-        >
-          <Dialog.Title>Add transaction</Dialog.Title>
-          <Dialog.Content>
-            <TextInput
-              label="Description"
-              mode="outlined"
-              value={newDesc}
-              onChangeText={setNewDesc}
-              style={{ marginBottom: 10 }}
-            />
-            <TextInput
-              label="Amount"
-              mode="outlined"
-              value={newAmount}
-              onChangeText={setNewAmount}
-              keyboardType="numeric"
-            />
-            <HelperText type={amountIsInvalid ? "error" : "info"} visible>
-              {amountIsInvalid
-                ? "Enter a positive number."
-                : "Use dot for decimals (e.g., 12.50)."}
-            </HelperText>
+      {/* Recent list */}
+      <RecentTransactions
+        items={txRecent}
+        onRefresh={loadAll}
+        onAdd={() => setShowAdd(true)}
+        onManageCategories={() => setShowCats(true)}
+        styles={styles}
+      />
 
-            <Text style={{ marginTop: 6, marginBottom: 4 }}>Type</Text>
-            <RadioButton.Group
-              onValueChange={(v) => setNewType(v as "income" | "expense")}
-              value={newType}
-            >
-              <View style={{ flexDirection: "row", gap: 16 }}>
-                <RadioButton.Item label="Expense" value="expense" />
-                <RadioButton.Item label="Income" value="income" />
-              </View>
-            </RadioButton.Group>
+      {/* Dialogs */}
+      <AddTransactionDialog
+        visible={showAdd}
+        onDismiss={() => setShowAdd(false)}
+        styles={styles}
+        desc={desc}
+        setDesc={setDesc}
+        amount={amount}
+        setAmount={setAmount}
+        type={ttype}
+        setType={setTtype}
+        catId={catId as any}
+        setCatId={(id) => setCatId(id)}
+        categories={cats}
+        newCatName={newCatName}
+        setNewCatName={setNewCatName}
+        onCreateCategoryInline={createCatInline}
+        creatingCat={creatingCat}
+        onSave={saveTx}
+        saving={saving}
+      />
 
-            <Text style={{ marginTop: 6, marginBottom: 4 }}>Category</Text>
+      <ManageCategoriesDialog
+        visible={showCats}
+        onDismiss={() => setShowCats(false)}
+        styles={styles}
+        categories={cats}
+        newName={catNameToAdd}
+        setNewName={setCatNameToAdd}
+        onAdd={addCatFromManager}
+        adding={addingInManager}
+      />
 
-            {categories.length === 0 ? (
-              <>
-                <HelperText type="info" visible>
-                  You have no categories yet. Create one to start tracking transactions.
-                </HelperText>
-                <View style={{ gap: 8 }}>
-                  <TextInput
-                    label="New category name"
-                    mode="outlined"
-                    value={newCatName}
-                    onChangeText={setNewCatName}
-                  />
-                  <Button
-                    mode="contained-tonal"
-                    onPress={createCategoryInline}
-                    loading={creatingCat}
-                    disabled={creatingCat || !newCatName.trim()}
-                  >
-                    Create category
-                  </Button>
-                </View>
-              </>
-            ) : (
-              <View style={{ borderWidth: 1, borderColor: "#ccc", borderRadius: 8 }}>
-                {categories.map((c) => (
-                  <List.Item
-                    key={c.id}
-                    title={c.name}
-                    onPress={() => setNewCatId(c.id)}
-                    right={() =>
-                      newCatId === c.id ? (
-                        <RadioButton status="checked" />
-                      ) : (
-                        <RadioButton status="unchecked" />
-                      )
-                    }
-                  />
-                ))}
-              </View>
-            )}
-          </Dialog.Content>
-          <Dialog.Actions>
-            <Button onPress={() => setShowAdd(false)}>Cancel</Button>
-            <Button
-              mode="contained"
-              onPress={createTransaction}
-              disabled={
-                saving ||
-                amountIsInvalid ||
-                !newDesc.trim() ||
-                !newCatId ||
-                categories.length === 0
-              }
-              loading={saving}
-            >
-              Save
-            </Button>
-          </Dialog.Actions>
-        </Dialog>
-
-        {/* Manage Categories Dialog — add multiple categories */}
-        <Dialog
-          visible={showCats}
-          onDismiss={() => setShowCats(false)}
-          style={{ maxWidth: 520, width: "95%", alignSelf: "center" }}
-        >
-          <Dialog.Title>Manage categories</Dialog.Title>
-          <Dialog.Content>
-            {categories.length === 0 ? (
-              <Text style={{ marginBottom: 8 }}>No categories yet.</Text>
-            ) : (
-              <View
-                style={{
-                  borderWidth: 1,
-                  borderColor: "#ccc",
-                  borderRadius: 8,
-                  marginBottom: 12,
-                }}
-              >
-                {categories.map((c, i) => (
-                  <View key={c.id}>
-                    <List.Item title={c.name} />
-                    {i < categories.length - 1 && <Divider />}
-                  </View>
-                ))}
-              </View>
-            )}
-
-            <TextInput
-              label="New category name"
-              mode="outlined"
-              value={catNameToAdd}
-              onChangeText={setCatNameToAdd}
-            />
-            <HelperText type="info" visible>
-              Add as many categories as you need.
-            </HelperText>
-          </Dialog.Content>
-          <Dialog.Actions>
-            <Button onPress={() => setShowCats(false)}>Close</Button>
-            <Button
-              mode="contained"
-              onPress={addCategoryFromManager}
-              disabled={addingInManager || !catNameToAdd.trim()}
-              loading={addingInManager}
-            >
-              Add
-            </Button>
-          </Dialog.Actions>
-        </Dialog>
-      </Portal>
-
-      <Snackbar
-        visible={snackbarVisible}
-        onDismiss={() => setSnackbarVisible(false)}
-        duration={3000}
-        action={{ label: "Dismiss", onPress: () => setSnackbarVisible(false) }}
-      >
+      <Snackbar visible={snack} onDismiss={() => setSnack(false)} duration={3000}>
         {error}
       </Snackbar>
     </ScrollView>
