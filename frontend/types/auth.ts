@@ -1,6 +1,5 @@
 export interface User {
-  id: string;
-  username: string;
+  id: number;
   email: string;
 }
 
@@ -15,8 +14,9 @@ export interface LoginCredentials {
   password: string;
 }
 
-export interface RegisterCredentials extends LoginCredentials {
+export interface RegisterCredentials {
   email: string;
+  password: string;
 }
 
 export interface AuthContextType {

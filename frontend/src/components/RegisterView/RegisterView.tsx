@@ -9,9 +9,8 @@ import { ReactElement } from "react";
 export const RegisterView: React.FC = (): ReactElement => {
   const { register, isLoading, switchAuthView } = useAuth();
   const [credentials, setCredentials] = useState<RegisterCredentials>({
-    username: "",
-    password: "",
     email: "",
+    password: "",
   });
 
   const [snackbarVisible, setSnackbarVisible] = useState(false);
@@ -24,7 +23,7 @@ export const RegisterView: React.FC = (): ReactElement => {
       setSnackbarVisible(true);
     } catch (error: any) {
       setSnackbarMessage(
-        error.message || "Registration failed. Please try again.",
+        error.message || "Registration failed. Please try again."
       );
       setSnackbarVisible(true);
     }
@@ -56,16 +55,6 @@ export const RegisterView: React.FC = (): ReactElement => {
             style={styles.input}
             autoCapitalize="none"
             keyboardType="email-address"
-            disabled={isLoading}
-          />
-
-          <TextInput
-            label="Username"
-            value={credentials.username}
-            onChangeText={handleInputChange("username")}
-            mode="outlined"
-            style={styles.input}
-            autoCapitalize="none"
             disabled={isLoading}
           />
 
