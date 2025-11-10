@@ -27,6 +27,59 @@ type Transaction = {
 
 const API = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
+/* ---------- Helper: build slices from full history ---------- */
+type Slice = {
+  name: string;
+  population: number;
+  color: string;
+  legendFontColor: string;
+  legendFontSize: number;
+  pct: number;
+};
+
+const buildCategorySlices = (txAll: Transaction[], cats: Category[]): Slice[] => {
+  const catNameById = new Map<number, string>();
+  for (const c of cats) catNameById.set(c.id, c.name);
+
+  // Sum only EXPENSE transactions, using absolute value
+  const byId = new Map<number, { name: string; total: number }>();
+  for (const t of txAll) {
+    if (t.type !== "expense") continue;
+    const amt = Math.abs(Number(t.amount) || 0);
+    if (!isFinite(amt) || amt <= 0) continue;
+
+    const name =
+      t.category?.name ??
+      catNameById.get(t.category_id) ??
+      (t.category_id ? `cat#${t.category_id}` : "Uncategorized");
+
+    const prev = byId.get(t.category_id);
+    if (prev) prev.total += amt;
+    else byId.set(t.category_id, { name, total: amt });
+  }
+
+  const rows = Array.from(byId.values());
+  const grand = rows.reduce((s, r) => s + r.total, 0);
+  if (grand <= 0) return [];
+
+  const palette = [
+    "#7c3aed", "#06b6d4", "#f59e0b", "#10b981", "#ef4444",
+    "#8b5cf6", "#22c55e", "#ec4899", "#14b8a6", "#6366f1",
+  ];
+
+  return rows
+    .sort((a, b) => b.total - a.total)
+    .map((r, i) => ({
+      name: r.name,
+      population: r.total,
+      color: palette[i % palette.length],
+      legendFontColor: "#111",
+      legendFontSize: 12,
+      pct: Math.round((r.total / grand) * 100),
+    }));
+};
+/* ------------------------------------------------------------ */
+
 export const DashboardView: React.FC = () => {
   const { token } = useAuth();
 
@@ -98,7 +151,7 @@ export const DashboardView: React.FC = () => {
         fetchJSON<{ id: number; email: string }>("/users/me"),
         fetchJSON<DashboardSummary>("/dashboard/summary_total"),
         fetchJSON<Transaction[]>("/transactions/?skip=0&limit=5"),
-        fetchJSON<Transaction[]>("/transactions/?skip=0&limit=500"),
+        fetchJSON<Transaction[]>("/transactions/?skip=0&limit=10000"), // bring large history
       ]);
       setEmail(me.email);
       setSummary(sum);
@@ -121,56 +174,8 @@ export const DashboardView: React.FC = () => {
     [summary]
   );
 
-  const catSlices = useMemo(() => {
-    const idToName = new Map<number, string>();
-    cats.forEach((c) => idToName.set(c.id, c.name));
-    const sums = new Map<number, number>();
-    for (const t of txAll) {
-      if (t.type !== "expense") continue;
-      const amt = Math.abs(Number(t.amount) || 0);
-      if (amt <= 0) continue;
-
-      if (!idToName.has(t.category_id)) {
-        idToName.set(
-          t.category_id,
-          t.category?.name ?? `cat#${t.category_id}`
-        );
-      }
-      sums.set(t.category_id, (sums.get(t.category_id) ?? 0) + amt);
-    }
-
-    const entries = Array.from(sums.entries()).map(([id, total]) => ({
-      name: idToName.get(id) ?? `cat#${id}`,
-      total,
-    }));
-
-    const grand = entries.reduce((s, e) => s + e.total, 0);
-    if (grand <= 0) return [];
-
-    const palette = [
-      "#7c3aed",
-      "#06b6d4",
-      "#f59e0b",
-      "#10b981",
-      "#ef4444",
-      "#8b5cf6",
-      "#22c55e",
-      "#ec4899",
-      "#14b8a6",
-      "#6366f1",
-    ];
-
-    return entries
-      .sort((a, b) => b.total - a.total)
-      .map((e, i) => ({
-        name: e.name,
-        population: e.total,
-        color: palette[i % palette.length],
-        legendFontColor: "#111",
-        legendFontSize: 12,
-        pct: Math.round((e.total / grand) * 100),
-      }));
-  }, [txAll, cats]);
+  // Build category slices from full tx history
+  const catSlices = useMemo(() => buildCategorySlices(txAll, cats), [txAll, cats]);
 
   const saveTx = async () => {
     if (!catId || !desc.trim() || !amount.trim()) return;
@@ -236,18 +241,14 @@ export const DashboardView: React.FC = () => {
 
   if (!token) {
     return (
-      <View
-        style={[styles.container, { justifyContent: "center", alignItems: "center" }]}
-      >
+      <View style={[styles.container, { justifyContent: "center", alignItems: "center" }]}>
         <Text>Please sign in to see your dashboard.</Text>
       </View>
     );
   }
   if (loading) {
     return (
-      <View
-        style={[styles.container, { justifyContent: "center", alignItems: "center" }]}
-      >
+      <View style={[styles.container, { justifyContent: "center", alignItems: "center" }]}>
         <ActivityIndicator />
         <Text style={{ marginTop: 8 }}>Loading…</Text>
       </View>
@@ -255,88 +256,82 @@ export const DashboardView: React.FC = () => {
   }
 
   return (
-    <ScrollView contentContainerStyle={{ padding: 16, alignItems: "center" }}>
-      {/* Header with title + email + chip */}
-      <DashboardHeader email={email} styles={styles} />
+    <ScrollView contentContainerStyle={{ flexGrow: 1 }}>
+      <View style={styles.page}>
+        <View style={styles.pageMax}>
+          {/* Header */}
+          <DashboardHeader email={email} styles={styles} />
 
-      {/* KPIs */}
-      <KPISummary
-        totalIncome={summary?.total_income ?? 0}
-        totalExpense={summary?.total_expense ?? 0}
-        balance={summary?.balance ?? 0}
-        balanceColor={balanceColor}
-        styles={styles}
-      />
+          {/* KPIs */}
+          <KPISummary
+            totalIncome={summary?.total_income ?? 0}
+            totalExpense={summary?.total_expense ?? 0}
+            balance={summary?.balance ?? 0}
+            balanceColor={balanceColor}
+            styles={styles}
+          />
 
-      {/* Charts: side-by-side on wide screens, stacked on narrow */}
-      <View
-        style={{
-          width: "100%",
-          maxWidth: 980,
-          flexDirection: "row",
-          flexWrap: "wrap",
-          gap: 16,
-          justifyContent: "center",
-          marginTop: 8,
-        }}
-      >
-        <View style={{ flexBasis: 460, flexGrow: 1 }}>
-          <IncomeExpensePie
-            income={summary?.total_income ?? 0}
-            expense={summary?.total_expense ?? 0}
+          {/* Charts: side-by-side on wide screens */}
+          <View style={styles.rowWrap}>
+            <View style={styles.colCard}>
+              <IncomeExpensePie
+                income={summary?.total_income ?? 0}
+                expense={summary?.total_expense ?? 0}
+                styles={styles}
+              />
+            </View>
+            <View style={styles.colCard}>
+              <CategoryExpensePie slices={catSlices} styles={styles} />
+            </View>
+          </View>
+
+          {/* Recent list & actions */}
+          <RecentTransactions
+            items={txRecent}
+            onRefresh={loadAll}
+            onAdd={() => setShowAdd(true)}
+            onManageCategories={() => setShowCats(true)}
             styles={styles}
           />
         </View>
-        <View style={{ flexBasis: 460, flexGrow: 1 }}>
-          <CategoryExpensePie slices={catSlices} styles={styles} />
-        </View>
+
+        {/* Dialogs */}
+        <AddTransactionDialog
+          visible={showAdd}
+          onDismiss={() => setShowAdd(false)}
+          styles={styles}
+          desc={desc}
+          setDesc={setDesc}
+          amount={amount}
+          setAmount={setAmount}
+          type={ttype}
+          setType={setTtype}
+          catId={catId as any}
+          setCatId={(id) => setCatId(id)}
+          categories={cats}
+          newCatName={newCatName}
+          setNewCatName={setNewCatName}
+          onCreateCategoryInline={createCatInline}
+          creatingCat={creatingCat}
+          onSave={saveTx}
+          saving={saving}
+        />
+
+        <ManageCategoriesDialog
+          visible={showCats}
+          onDismiss={() => setShowCats(false)}
+          styles={styles}
+          categories={cats}
+          newName={catNameToAdd}
+          setNewName={setCatNameToAdd}
+          onAdd={addCatFromManager}
+          adding={addingInManager}
+        />
+
+        <Snackbar visible={snack} onDismiss={() => setSnack(false)} duration={3000}>
+          {error}
+        </Snackbar>
       </View>
-
-      {/* Recent list */}
-      <RecentTransactions
-        items={txRecent}
-        onRefresh={loadAll}
-        onAdd={() => setShowAdd(true)}
-        onManageCategories={() => setShowCats(true)}
-        styles={styles}
-      />
-
-      {/* Dialogs */}
-      <AddTransactionDialog
-        visible={showAdd}
-        onDismiss={() => setShowAdd(false)}
-        styles={styles}
-        desc={desc}
-        setDesc={setDesc}
-        amount={amount}
-        setAmount={setAmount}
-        type={ttype}
-        setType={setTtype}
-        catId={catId as any}
-        setCatId={(id) => setCatId(id)}
-        categories={cats}
-        newCatName={newCatName}
-        setNewCatName={setNewCatName}
-        onCreateCategoryInline={createCatInline}
-        creatingCat={creatingCat}
-        onSave={saveTx}
-        saving={saving}
-      />
-
-      <ManageCategoriesDialog
-        visible={showCats}
-        onDismiss={() => setShowCats(false)}
-        styles={styles}
-        categories={cats}
-        newName={catNameToAdd}
-        setNewName={setCatNameToAdd}
-        onAdd={addCatFromManager}
-        adding={addingInManager}
-      />
-
-      <Snackbar visible={snack} onDismiss={() => setSnack(false)} duration={3000}>
-        {error}
-      </Snackbar>
     </ScrollView>
   );
 };
