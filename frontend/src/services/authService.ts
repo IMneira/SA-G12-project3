@@ -36,14 +36,38 @@ class AuthService {
   }
 
   async register(credentials: RegisterCredentials): Promise<AuthResponse> {
-    await api.post<BackendRegisterResponse>("/register", {
+    console.log("[AuthService] Register request:", {
       email: credentials.email,
-      password: credentials.password,
+      password: "***",
+      credentialsKeys: Object.keys(credentials),
     });
-    return this.login({
-      username: credentials.email,
-      password: credentials.password,
-    });
+    
+    try {
+      const response = await api.post<BackendRegisterResponse>("/register", {
+        email: credentials.email,
+        password: credentials.password,
+      });
+      
+      console.log("[AuthService] Register success:", response.data);
+      
+      return this.login({
+        username: credentials.email,
+        password: credentials.password,
+      });
+    } catch (error: any) {
+      console.error("[AuthService] Register error:", {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+      });
+      
+      // Mejorar el mensaje de error para el usuario
+      if (error.response?.data?.detail) {
+        throw new Error(error.response.data.detail);
+      }
+      
+      throw error;
+    }
   }
 
   async logout(): Promise<void> {
